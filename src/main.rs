@@ -27,9 +27,11 @@ use sputnikvm_stateful::{MemoryStateful, LiteralAccount};
 use block::TransactionAction;
 use trie::{Database, MemoryDatabase};
 use std::collections::HashMap;
+use std::str;
 use std::str::FromStr;
 use std::rc::Rc;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use rand::Rng;
 use rustc_hex::{FromHex, ToHex};
@@ -40,6 +42,9 @@ use sputnikvm::{
 use clap::{App, Arg};
 use std::io::Read;
 use ethabi::{
+    param_type:: {
+        ParamType,
+    },
     token::{
         Token,
         Tokenizer,
@@ -55,6 +60,25 @@ fn load_yaml(path: &str) -> serde_yaml::Value {
     serde_yaml::from_str(&content).unwrap()
 }
 
+fn _load_json(path: &str) -> serde_json::Value {
+    let mut content = String::new();
+    let mut file = fs::File::open(path).unwrap();
+    file.read_to_string(&mut content).unwrap();
+    serde_json::from_str(&content).unwrap()
+}
+
+#[inline]
+pub fn remove_0x(hex: &str) -> &str {
+    {
+        let tmp = hex.as_bytes();
+        if tmp[..2] == b"0x"[..] || tmp[..2] == b"0X"[..] {
+            return str::from_utf8(&tmp[2..]).unwrap();
+        }
+    }
+    hex
+}
+
+#[derive(Debug)]
 struct Contract {
     /// Contract name
     name: String,
@@ -74,11 +98,28 @@ struct Contract {
 
 impl Contract {
     /// load from path
-    pub fn load(path: &str, name: &str) -> Contract {
+    pub fn load(common_files: &[&str], path: &str, name: &str) -> Contract {
+        fn check_command_output(output: &std::process::Output) {
+            if !output.status.success() {
+                panic!(
+                    "\n[stderr]: {}\n[stdout]: {}",
+                    String::from_utf8_lossy(output.stderr.as_slice()),
+                    String::from_utf8_lossy(output.stdout.as_slice()),
+                );
+            }
+        }
+
+        let allow_paths = common_files.join(",");
         let output = Command::new("solc")
-            .args(&["--combined-json", "abi,bin,bin-runtime,userdoc", path])
+            .args(&[
+                "--combined-json", "abi,bin,bin-runtime,userdoc",
+                "--allow-paths", allow_paths.as_str(),
+                path,
+            ])
             .output()
             .expect("Failed call solc");
+        check_command_output(&output);
+
         let data: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         let contract = data["contracts"]
             .as_object()
@@ -112,7 +153,19 @@ impl Contract {
                 .enumerate()
                 .map(|(i, param_value)| {
                     let param_type = &constructor.inputs[i].kind;
-                    LenientTokenizer::tokenize(param_type, param_value).unwrap()
+                    match param_type {
+                        ParamType::FixedBytes(_) => {
+                            let mut bytes = [0u8; 32];
+                            let value_bytes = param_value.as_bytes();
+                            bytes[0..value_bytes.len()].copy_from_slice(value_bytes);
+                            let s: String = bytes[..].to_hex();
+                            println!("bytes32: {} => {:?}", param_value, s);
+                            StrictTokenizer::tokenize(param_type, s.as_str()).unwrap()
+                        }
+                        _ => {
+                            LenientTokenizer::tokenize(param_type, param_value).unwrap()
+                        }
+                    }
                 })
                 .collect();
             constructor.encode_input(self.bytecode.clone(), &tokens).unwrap()
@@ -145,7 +198,7 @@ fn gen_account(data: Rc<Vec<u8>>) -> Option<AccountInfo> {
         nonce: U256::one(),
     }, HeaderParams {
         beneficiary: Address::default(),
-        timestamp: 0,
+        timestamp: 1533284582935,
         number: U256::zero(),
         difficulty: U256::zero(),
         gas_limit: Gas::max_value()
@@ -169,6 +222,12 @@ fn gen_account(data: Rc<Vec<u8>>) -> Option<AccountInfo> {
 fn main() {
     let matches = App::new("create-genesis")
         .arg(
+            Arg::with_name("directory")
+                .long("directoryr")
+                .takes_value(true)
+                .help("Contracts directory")
+        )
+        .arg(
             Arg::with_name("contracts")
                 .short("c")
                 .long("contracts")
@@ -186,13 +245,119 @@ fn main() {
         )
         .get_matches();
 
-    let contracts = load_yaml(matches.value_of("contracts").unwrap());
+    let contracts_path = matches.value_of("contracts").unwrap();
+    let contracts = load_yaml(contracts_path);
     let data = load_yaml(matches.value_of("data").unwrap());
+    let directory = matches.value_of("directory").unwrap_or_else(|| {
+        std::path::Path::new(contracts_path)
+            .parent()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    });
+    let mut common_directory: PathBuf = PathBuf::new();
+    common_directory.push(directory);
+    common_directory.push("common");
+    let common_files: Vec<PathBuf> = common_directory
+        .read_dir()
+        .unwrap()
+        .filter(|rv| rv.is_ok())
+        .map(|rv| rv.unwrap())
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|t| t.is_file())
+                .ok()
+                .unwrap_or(false)
+        })
+        .map(|entry| {
+            let mut path = common_directory.clone();
+            path.push(entry.file_name());
+            path
+        })
+        .collect();
+    let common_file_strs: Vec<&str> = common_files
+        .iter()
+        .map(|p| p.to_str().unwrap())
+        .collect();
 
+    contracts["NormalContracts"]
+        .as_sequence()
+        .unwrap()
+        .into_iter()
+        .map(|v| v.as_mapping().unwrap().iter().next().unwrap())
+        .map(|(name, config)| {
+            let name = name.as_str().unwrap();
+            let address = config["address"].as_str().unwrap();
+            let file_path: &str = config["file"].as_str().unwrap();
+            let abs_file: PathBuf = Path::new(directory).join(file_path);
+            let abs_file_path: &str = abs_file.to_str().unwrap();
+            println!("name={}, address={}, file={}", name, address, abs_file_path);
+            let contract = Contract::load(&common_file_strs, abs_file_path, name);
+            let param_values = data["Contracts"]
+                .as_sequence()
+                .unwrap()
+                .iter()
+                .map(|item| {
+                    item
+                        .as_mapping()
+                        .unwrap()
+                        .iter()
+                        .next()
+                        .unwrap()
+                })
+                .find(|(key, _)| key.as_str().unwrap() == name)
+                .map(|(_, values)| {
+                    values
+                        .as_sequence()
+                        .unwrap()
+                        .iter()
+                        .map(|value| {
+                            value
+                                .as_mapping()
+                                .unwrap()
+                                .iter()
+                                .next()
+                                .map(|(key, value)| {
+                                    println!("key={:?}, value={:?}", key, value);
+                                    use serde_yaml::Value;
+                                    match value {
+                                        Value::Bool(v) => v.to_string(),
+                                        Value::Number(v) => format!("{}", v),
+                                        Value::String(v) => remove_0x(v.as_str()).to_string(),
+                                        Value::Sequence(items) => {
+                                            let items_string = items
+                                                .iter()
+                                                .map(|item| {
+                                                    match item {
+                                                        Value::Bool(v) => v.to_string(),
+                                                        Value::Number(v) => format!("{}", v),
+                                                        Value::String(v) => remove_0x(v.as_str()).to_string(),
+                                                        _ => panic!("Invalid item: {:?}", item),
+                                                    }
+                                                })
+                                                .collect::<Vec<_>>()
+                                                .join(",");
+                                            format!("[{}]", items_string)
+                                        },
+                                        _ => panic!("Invalid value: {:?}", value),
+                                    }
+                                })
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or(vec![]);
 
-    let code_str = "608060405234801561001057600080fd5b5060646000819055507f8fb1356be6b2a4e49ee94447eb9dcb8783f51c41dcddfe7919f945017d163bf3336064604051808373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a161018a806100946000396000f30060806040526004361061004c576000357c0100000000000000000000000000000000000000000000000000000000900463ffffffff16806360fe47b1146100515780636d4ce63c1461007e575b600080fd5b34801561005d57600080fd5b5061007c600480360381019080803590602001909291905050506100a9565b005b34801561008a57600080fd5b50610093610155565b6040518082815260200191505060405180910390f35b7fc6d8c0af6d21f291e7c359603aa97e0ed500f04db6e983b9fce75a91c6b8da6b816040518082815260200191505060405180910390a1806000819055507ffd28ec3ec2555238d8ad6f9faf3e4cd10e574ce7e7ef28b73caa53f9512f65b93382604051808373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a150565b600080549050905600a165627a7a723058201a1bf0066db9d92d10c43c76eb864787182721a9dcec35b3782d7a8e152c7a850029";
-    let code_bytes: Rc<Vec<u8>> = Rc::new(code_str.from_hex().unwrap());
-
-    let info = gen_account(code_bytes).unwrap();
-    println!("account info={:?}", info);
+            println!("values: {:?}", param_values);
+            let param_strs: Vec<&str> = param_values
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            gen_account(Rc::new(contract.data(param_strs.as_slice())))
+        })
+        .for_each(|info| {
+            println!("account info={:#?}", info.map(|v| v.storage));
+            println!("=============================\n");
+        });
 }
