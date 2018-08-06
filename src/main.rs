@@ -251,6 +251,7 @@ impl AccountInfo {
             .into();
 
         map.into_iter()
+            .filter(|(_, value)| value.0 > U256::zero())
             .map(|(key, value)| (fill_hex(&key), fill_hex(&value.0)))
             .collect()
     }
@@ -481,11 +482,17 @@ fn main() {
         println!(">> address: {}", address);
         let right_item = right.alloc.get(address).unwrap();
         assert_eq!(left_item.nonce, right_item.nonce);
-        assert_eq!(left_item.code, right_item.code);
+        // assert_eq!(left_item.code, right_item.code);
         for (key, left_value) in &left_item.storage {
-            println!(" > storage.key: {}", key);
+            println!(" > storage.key: {}, left={}", key, left_value);
             let right_value = right_item.storage.get(key).unwrap();
             assert_eq!(left_value, right_value);
         }
+        for (key, right_value) in &right_item.storage {
+            println!(" > storage.key: {}, right={}", key, right_value);
+            let left_value = left_item.storage.get(key).unwrap();
+            assert_eq!(left_value, right_value);
+        }
+        println!("=============================\n");
     }
 }
