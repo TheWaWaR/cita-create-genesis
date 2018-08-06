@@ -470,7 +470,6 @@ fn main() {
                 };
                 genesis.alloc.insert(instance_cfg.address.clone(), alloc_item);
             }
-            println!("=============================\n");
         }
     }
 
@@ -478,21 +477,15 @@ fn main() {
     let right = genesis_value;
     assert_eq!(left.timestamp, right.timestamp);
     assert_eq!(left.prevhash, right.prevhash);
+    // TODO: Some balance transfer account
+    // assert_eq!(left.alloc.len(), right.alloc.len());
     for (address, left_item) in &left.alloc {
         println!(">> address: {}", address);
         let right_item = right.alloc.get(address).unwrap();
         assert_eq!(left_item.nonce, right_item.nonce);
+        // TODO: why code not the same?
         // assert_eq!(left_item.code, right_item.code);
-        for (key, left_value) in &left_item.storage {
-            println!(" > storage.key: {}, left={}", key, left_value);
-            let right_value = right_item.storage.get(key).unwrap();
-            assert_eq!(left_value, right_value);
-        }
-        for (key, right_value) in &right_item.storage {
-            println!(" > storage.key: {}, right={}", key, right_value);
-            let left_value = left_item.storage.get(key).unwrap();
-            assert_eq!(left_value, right_value);
-        }
-        println!("=============================\n");
+        assert_eq!(left_item.storage, right_item.storage);
+        println!("============= [OK] ================\n");
     }
 }
