@@ -335,5 +335,20 @@
     "common/admin.sol",
     "common/contract_check.sol",
     "common/error.sol"
+  ],
+  "transfers": [
+    {
+      "addresses": ["0x4b5ae4567ad5d9fb92bc9afd6a657e6fa13a2523"],
+      "value": "0xffffffffffffffffffffffffff"
+    },
+    {
+      "addresses": [
+        "0x0c0a140d781e3d0ab66c2a031d6c8e5e4a63c9b6",
+        "0xbee50b641872b9f5e472016da7baf5f878d5c63e",
+        "0xd558edc033ac3e9e564faf8481cd352610d69e57",
+        "0x7a54f56b25d6cf6c9ad5609d8d8b0b812459cb93"
+      ],
+      "value": "0xffffffffffffffffffffffffff"
+    }
   ]
 }

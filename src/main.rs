@@ -56,7 +56,8 @@ use ethabi::{
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Cfg {
     pub contracts: Vec<ContractCfg>,
-    pub library: Vec<String>
+    pub library: Vec<String>,
+    pub transfers: Vec<TransferCfg>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -76,6 +77,12 @@ struct ContractInstanceCfg {
 struct ContractParamCfg {
     pub name: String,
     pub value: serde_json::Value
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct TransferCfg {
+    pub addresses: Vec<String>,
+    pub value: String,
 }
 
 #[derive(Debug)]
@@ -312,6 +319,8 @@ struct GenesisBlock {
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 struct AllocItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
     nonce: String,
     code: String,
     storage: HashMap<String, String>,
@@ -376,6 +385,16 @@ fn main() {
         prevhash: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         alloc: HashMap::new(),
     };
+    for transfer_cfg in &cfg.transfers {
+        for address in &transfer_cfg.addresses {
+            genesis.alloc.insert(address.clone(), AllocItem {
+                code: String::new(),
+                storage: HashMap::new(),
+                nonce: "1".to_string(),
+                value: Some(transfer_cfg.value.clone())
+            });
+        }
+    }
 
     let contracts: Vec<Contract> = cfg.contracts
         .into_iter()
@@ -464,6 +483,7 @@ fn main() {
             let data = contract.data(&param_values);
             if let Some(ref info) = gen_account(Rc::new(data)) {
                 let alloc_item = AllocItem {
+                    value: None,
                     nonce: "1".to_string(),
                     code: format!("0x{}", info.code.to_hex::<String>()),
                     storage: info.storage_map()
@@ -477,8 +497,7 @@ fn main() {
     let right = genesis_value;
     assert_eq!(left.timestamp, right.timestamp);
     assert_eq!(left.prevhash, right.prevhash);
-    // TODO: Some balance transfer account
-    // assert_eq!(left.alloc.len(), right.alloc.len());
+    assert_eq!(left.alloc.len(), right.alloc.len());
     for (address, left_item) in &left.alloc {
         println!(">> address: {}", address);
         let right_item = right.alloc.get(address).unwrap();
@@ -488,4 +507,5 @@ fn main() {
         assert_eq!(left_item.storage, right_item.storage);
         println!("============= [OK] ================\n");
     }
+    // println!("{}", serde_json::to_string_pretty(&left).unwrap());
 }
