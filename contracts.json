@@ -1,0 +1,339 @@
+{
+  "contracts": [
+    {
+      "name": "SysConfig",
+      "path": "system/sys_config.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020000",
+          "params": [
+            {"name": "delayBlockNumber", "value": 1},
+            {"name": "checkPermission", "value": false},
+            {"name": "checkQuota", "value": false},
+            {"name": "chainName", "value": "test-chain"},
+            {"name": "chainId", "value": 1},
+            {"name": "operator", "value": "test-operator"},
+            {"name": "website", "value": "https://www.example.com"},
+            {"name": "blockInterval", "value": 3000},
+            {"name": "economicalModel", "value": 0},
+            {"name": "name", "value": "Nervos"},
+            {"name": "symbol", "value": "NOS"},
+            {"name": "avatar", "value": "https://avatars1.githubusercontent.com/u/35361817"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "NodeManager",
+      "path": "system/node_manager.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020001",
+          "params": [
+            {
+              "name": "nodes",
+              "value": [
+                "0x0c0a140d781e3d0ab66c2a031d6c8e5e4a63c9b6",
+                "0xbee50b641872b9f5e472016da7baf5f878d5c63e",
+                "0xd558edc033ac3e9e564faf8481cd352610d69e57",
+                "0x7a54f56b25d6cf6c9ad5609d8d8b0b812459cb93"
+              ]
+            },
+            {"name": "stakes", "value": [0, 0, 0, 0]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ChainManager",
+      "path": "system/chain_manager.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020002",
+          "params": [
+            {"name": "parentChainId", "value": 0},
+            {"name": "parentChainAuthorities", "value": []}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "QuotaManager",
+      "path": "system/quota_manager.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020003",
+          "params": [
+            {"name": "admin", "value": "0x4b5ae4567ad5d9fb92bc9afd6a657e6fa13a2523"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PermissionManagement",
+      "path": "permission_management/permission_management.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020004",
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "PermissionCreator",
+      "path": "permission_management/permission_creator.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020005",
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "Authorization",
+      "path": "permission_management/authorization.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020006",
+          "params": [
+            {"name": "superAdmin", "value": "0x4b5ae4567ad5d9fb92bc9afd6a657e6fa13a2523"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RoleManagement",
+      "path": "permission_management/role_management.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020007",
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "RoleCreator",
+      "path": "permission_management/role_creator.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020008",
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "Group",
+      "path": "user_management/group.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff020009",
+          "params": [
+            {"name": "parent", "value": "0x0000000000000000000000000000000000000000"},
+            {"name": "name", "value": "rootGroup"},
+            {"name": "accounts", "value": ["0x4b5ae4567ad5d9fb92bc9afd6a657e6fa13a2523"]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GroupManagement",
+      "path": "user_management/group_management.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff02000a",
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "GroupCreator",
+      "path": "user_management/group_creator.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff02000b",
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "path": "common/admin.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff02000c",
+          "params": [
+            {"name": "admin", "value": "0x4b5ae4567ad5d9fb92bc9afd6a657e6fa13a2523"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Permission",
+      "path": "permission_management/permission.sol",
+      "instances": [
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021000",
+          "params": [
+            {"name": "name", "value": "sendTx"},
+            {"name": "contracts", "value": ["0xffffffffffffffffffffffffffffffffff021000"]},
+            {"name": "functions", "value": ["0x00000000"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021001",
+          "params": [
+            {"name": "name", "value": "createContract"},
+            {"name": "contracts", "value": ["0xffffffffffffffffffffffffffffffffff021001"]},
+            {"name": "functions", "value": ["0x00000000"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021010",
+          "params": [
+            {"name": "name", "value": "newPermission"},
+            {"name": "contracts", "value": ["PermissionManagement"]},
+            {"name": "functions", "value": ["newPermission(bytes32,address[],bytes4[])"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021011",
+          "params": [
+            {"name": "name", "value": "deletePermission"},
+            {"name": "contracts", "value": ["PermissionManagement"]},
+            {"name": "functions", "value": ["deletePermission(address)"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021012",
+          "params": [
+            {"name": "name", "value": "updatePermission"},
+            {"name": "contracts", "value": ["PermissionManagement", "PermissionManagement", "PermissionManagement"]},
+            {
+              "name": "functions",
+              "value": [
+                "addResources(address,address[],bytes4[])",
+                "deleteResources(address,address[],bytes4[])",
+                "updatePermissionName(address,bytes32)"
+              ]
+            }
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021013",
+          "params": [
+            {"name": "name", "value": "setAuth"},
+            {"name": "contracts", "value": ["PermissionManagement", "PermissionManagement"]},
+            {
+              "name": "functions",
+              "value": [
+                "setAuthorization(address,address)",
+                "setAuthorizations(address,address[])"
+              ]
+            }
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021014",
+          "params": [
+            {"name": "name", "value": "cancelAuth"},
+            {"name": "contracts", "value": ["PermissionManagement", "PermissionManagement", "PermissionManagement"]},
+            {
+              "name": "functions",
+              "value": [
+                "cancelAuthorization(address,address)",
+                "clearAuthorization(address)",
+                "cancelAuthorizations(address,address[])"
+              ]
+            }
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021015",
+          "params": [
+            {"name": "name", "value": "newRole"},
+            {"name": "contracts", "value": ["RoleManagement"]},
+            {"name": "functions", "value": ["newRole(bytes32,address[])"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021016",
+          "params": [
+            {"name": "name", "value": "deleteRole"},
+            {"name": "contracts", "value": ["RoleManagement"]},
+            {"name": "functions", "value": ["deleteRole(address)"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021017",
+          "params": [
+            {"name": "name", "value": "updateRole"},
+            {"name": "contracts", "value": ["RoleManagement", "RoleManagement", "RoleManagement"]},
+            {
+              "name": "functions",
+              "value": [
+                "addPermissions(address,address[])",
+                "deletePermissions(address,address[])",
+                "updateRoleName(address,bytes32)"
+              ]
+            }
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021018",
+          "params": [
+            {"name": "name", "value": "setRole"},
+            {"name": "contracts", "value": ["RoleManagement"]},
+            {"name": "functions", "value": ["setRole(address,address)"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff021019",
+          "params": [
+            {"name": "name", "value": "cancelRole"},
+            {"name": "contracts", "value": ["RoleManagement", "RoleManagement"]},
+            {"name": "functions", "value": ["cancelRole(address,address)", "clearRole(address)"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff02101a",
+          "params": [
+            {"name": "name", "value": "newGroup"},
+            {"name": "contracts", "value": ["GroupManagement"]},
+            {"name": "functions", "value": ["newGroup(address,bytes32,address[])"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff02101b",
+          "params": [
+            {"name": "name", "value": "deleteGroup"},
+            {"name": "contracts", "value": ["GroupManagement"]},
+            {"name": "functions", "value": ["deleteGroup(address,address)"]}
+          ]
+        },
+        {
+          "address": "0xffffffffffffffffffffffffffffffffff02101c",
+          "params": [
+            {"name": "name", "value": "updateGroup"},
+            {"name": "contracts", "value": ["GroupManagement", "GroupManagement", "GroupManagement"]},
+            {
+              "name": "functions",
+              "value": [
+                "addAccounts(address,address,address[])",
+                "deleteAccounts(address,address,address[])",
+                "updateGroupName(address,address,bytes32)"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "library": [
+    "common/SafeMath.sol",
+    "common/address.sol",
+    "common/address_array.sol",
+    "common/admin.sol",
+    "common/contract_check.sol",
+    "common/error.sol"
+  ]
+}

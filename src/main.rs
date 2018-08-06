@@ -2,7 +2,6 @@
 
 extern crate serde;
 extern crate serde_json;
-extern crate serde_yaml;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -19,6 +18,7 @@ extern crate rustc_hex;
 extern crate clap;
 extern crate ethabi;
 
+use serde::de::Deserialize;
 use sha3::{Digest, Keccak256};
 use bigint::{H256, U256, M256, Address, Gas};
 use sputnikvm::{ValidTransaction, VM, SeqTransactionVM, HeaderParams, VMStatus};
@@ -53,18 +53,78 @@ use ethabi::{
     },
 };
 
-fn load_yaml(path: &str) -> serde_yaml::Value {
-    let mut content = String::new();
-    let mut file = fs::File::open(path).unwrap();
-    file.read_to_string(&mut content).unwrap();
-    serde_yaml::from_str(&content).unwrap()
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Cfg {
+    pub contracts: Vec<ContractCfg>,
+    pub library: Vec<String>
 }
 
-fn _load_json(path: &str) -> serde_json::Value {
-    let mut content = String::new();
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ContractCfg {
+    pub name: String,
+    pub path: String,
+    pub instances: Vec<ContractInstanceCfg>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ContractInstanceCfg {
+    pub address: String,
+    pub params: Vec<ContractParamCfg>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ContractParamCfg {
+    pub name: String,
+    pub value: serde_json::Value
+}
+
+#[derive(Debug)]
+enum AbiValue {
+    Single(String),
+    Array(Vec<String>)
+}
+
+impl AbiValue {
+    fn into_string(self) -> String {
+        match self {
+            AbiValue::Single(v) => v,
+            AbiValue::Array(items) => format!("[{}]", items.join(","))
+        }
+    }
+}
+
+impl ContractParamCfg {
+    pub fn to_abi_value(&self) -> AbiValue {
+        use serde_json::Value;
+        match self.value {
+            Value::Bool(ref v) => AbiValue::Single(v.to_string()),
+            Value::Number(ref v) => AbiValue::Single(format!("{}", v)),
+            Value::String(ref v) => AbiValue::Single(remove_0x(v.as_str()).to_string()),
+            Value::Array(ref items) => {
+                let item_strings = items
+                    .iter()
+                    .map(|item| {
+                        match item {
+                            Value::Bool(v) => v.to_string(),
+                            Value::Number(v) => format!("{}", v),
+                            Value::String(v) => remove_0x(v.as_str()).to_string(),
+                            _ => panic!("Invalid item: {:?}", item),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                AbiValue::Array(item_strings)
+            },
+            _ => panic!("Invalid value: {:?}", self.value),
+        }
+    }
+}
+
+fn load_json<'a, T>(path: &str, content: &'a mut String) -> T
+where T: Deserialize<'a>
+{
     let mut file = fs::File::open(path).unwrap();
-    file.read_to_string(&mut content).unwrap();
-    serde_json::from_str(&content).unwrap()
+    file.read_to_string(content).unwrap();
+    serde_json::from_str(content).unwrap()
 }
 
 #[inline]
@@ -80,25 +140,20 @@ pub fn remove_0x(hex: &str) -> &str {
 
 #[derive(Debug)]
 struct Contract {
-    /// Contract name
-    name: String,
-    /// Source code file path
-    path: Option<String>,
-    /// Contract address
-    address: Option<Address>,
+    cfg: ContractCfg,
     /// Contract bytecode (solc --bin)
     bytecode: Vec<u8>,
-    // /// Contract bytecode runtime (solc --bin-runtime)
-    // bytecode_runtime: Vec<u8>,
+    /// Contract bytecode (solc --bin-runtime)
+    bytecode_runtime: Vec<u8>,
+    /// Function hashes
+    hashes: HashMap<String, String>,
     /// ethabi Contract
     abi: ethabi::Contract,
-    // /// userdoc
-    // userdoc: HashMap<String, String>,
 }
 
 impl Contract {
     /// load from path
-    pub fn load(common_files: &[&str], path: &str, name: &str) -> Contract {
+    pub fn load(cfg: ContractCfg, library: &[&str], path: &str) -> Contract {
         fn check_command_output(output: &std::process::Output) {
             if !output.status.success() {
                 panic!(
@@ -109,10 +164,10 @@ impl Contract {
             }
         }
 
-        let allow_paths = common_files.join(",");
+        let allow_paths = library.join(",");
         let output = Command::new("solc")
             .args(&[
-                "--combined-json", "abi,bin,bin-runtime,userdoc",
+                "--combined-json", "abi,bin,hashes,bin-runtime",
                 "--allow-paths", allow_paths.as_str(),
                 path,
             ])
@@ -125,7 +180,7 @@ impl Contract {
             .as_object()
             .unwrap()
             .into_iter()
-            .find(|(long_name, _)| long_name.ends_with(format!(":{}", name).as_str()))
+            .find(|(long_name, _)| long_name.ends_with(format!(":{}", cfg.name).as_str()))
             .map(|(_, contract)| contract.as_object().unwrap())
             .unwrap();
 
@@ -134,21 +189,26 @@ impl Contract {
             .unwrap()
             .from_hex()
             .unwrap();
+        let bytecode_runtime: Vec<u8> = contract["bin-runtime"]
+            .as_str()
+            .unwrap()
+            .from_hex()
+            .unwrap();
         let abi_str = contract["abi"].as_str().unwrap();
         let abi = ethabi::Contract::load(abi_str.as_bytes()).unwrap();
-        Contract {
-            bytecode,
-            abi,
-            name: name.to_string(),
-            path: Some(path.to_string()),
-            address: None,
-        }
+        let hashes: HashMap<String, String> = contract["hashes"]
+            .as_object()
+            .unwrap()
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+            .collect();
+        Contract {cfg, bytecode, bytecode_runtime, abi, hashes}
     }
 
     /// code + constructor-params
-    pub fn data(&self, params: &[&str]) -> Vec<u8> {
+    pub fn data(&self, param_values: &[&str]) -> Vec<u8> {
         if let Some(ref constructor) = self.abi.constructor {
-            let tokens: Vec<Token> = params
+            let tokens: Vec<Token> = param_values
                 .iter()
                 .enumerate()
                 .map(|(i, param_value)| {
@@ -159,7 +219,7 @@ impl Contract {
                             let value_bytes = param_value.as_bytes();
                             bytes[0..value_bytes.len()].copy_from_slice(value_bytes);
                             let s: String = bytes[..].to_hex();
-                            println!("bytes32: {} => {:?}", param_value, s);
+                            // println!("bytes32: {} => {:?}", param_value, s);
                             StrictTokenizer::tokenize(param_type, s.as_str()).unwrap()
                         }
                         _ => {
@@ -182,6 +242,29 @@ struct AccountInfo {
     pub balance: U256,
     pub storage: Storage,
     pub code: Rc<Vec<u8>>,
+}
+
+impl AccountInfo {
+    fn storage_map(&self) -> HashMap<String, String> {
+        let map: HashMap<_, _> = self.storage
+            .clone()
+            .into();
+
+        map.into_iter()
+            .map(|(key, value)| (fill_hex(&key), fill_hex(&value.0)))
+            .collect()
+    }
+}
+
+fn fill_hex(value: &U256) -> String {
+    let value_hex = format!("{:x}", value);
+    if value_hex.is_empty() {
+        format!("0x00")
+    } else if value_hex.len() % 2 == 1 {
+        format!("0x0{}", value_hex)
+    } else {
+        format!("0x{}", value_hex)
+    }
 }
 
 fn gen_account(data: Rc<Vec<u8>>) -> Option<AccountInfo> {
@@ -219,6 +302,20 @@ fn gen_account(data: Rc<Vec<u8>>) -> Option<AccountInfo> {
     None
 }
 
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+struct GenesisBlock {
+    timestamp: u64,
+    prevhash: String,
+    alloc: HashMap<String, AllocItem>
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+struct AllocItem {
+    nonce: String,
+    code: String,
+    storage: HashMap<String, String>,
+}
+
 fn main() {
     let matches = App::new("create-genesis")
         .arg(
@@ -228,136 +325,167 @@ fn main() {
                 .help("Contracts directory")
         )
         .arg(
-            Arg::with_name("contracts")
+            Arg::with_name("config")
                 .short("c")
-                .long("contracts")
+                .long("config")
                 .takes_value(true)
                 .required(true)
-                .help("Contracts YAML config path")
+                .help("Contracts JSON config path")
         )
         .arg(
-            Arg::with_name("data")
-                .short("d")
-                .long("data")
+            Arg::with_name("genesis")
+                .short("g")
+                .long("genesis")
                 .takes_value(true)
                 .required(true)
-                .help("Initialize data(for solidity constructor arguments) YAML config path")
+                .help("Genesis JSON file path")
         )
         .get_matches();
 
-    let contracts_path = matches.value_of("contracts").unwrap();
-    let contracts = load_yaml(contracts_path);
-    let data = load_yaml(matches.value_of("data").unwrap());
+    let genesis_path = matches.value_of("genesis").unwrap();
+    let mut genesis_content = String::new();
+    let genesis_value: GenesisBlock = load_json(genesis_path, &mut genesis_content);
+
+    let config_path = matches.value_of("config").unwrap();
     let directory = matches.value_of("directory").unwrap_or_else(|| {
-        std::path::Path::new(contracts_path)
+        std::path::Path::new(config_path)
             .parent()
             .unwrap()
             .to_str()
             .unwrap()
     });
-    let mut common_directory: PathBuf = PathBuf::new();
-    common_directory.push(directory);
-    common_directory.push("common");
-    let common_files: Vec<PathBuf> = common_directory
-        .read_dir()
-        .unwrap()
-        .filter(|rv| rv.is_ok())
-        .map(|rv| rv.unwrap())
-        .filter(|entry| {
-            entry
-                .file_type()
-                .map(|t| t.is_file())
-                .ok()
-                .unwrap_or(false)
-        })
-        .map(|entry| {
-            let mut path = common_directory.clone();
-            path.push(entry.file_name());
-            path
+    let mut cfg_content = String::new();
+    let cfg: Cfg = load_json(config_path, &mut cfg_content);
+    let library: Vec<PathBuf> = cfg.library
+        .iter()
+        .map(|path| {
+            let mut full_path = PathBuf::from(directory.clone());
+            full_path.push(path);
+            full_path
         })
         .collect();
-    let common_file_strs: Vec<&str> = common_files
+    let library: Vec<&str> = library
         .iter()
         .map(|p| p.to_str().unwrap())
         .collect();
+    let mut contract_addresses: HashMap<String, String> = HashMap::new();
 
-    contracts["NormalContracts"]
-        .as_sequence()
-        .unwrap()
+    let mut genesis = GenesisBlock {
+        timestamp: 1533284582935,
+        prevhash: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        alloc: HashMap::new(),
+    };
+
+    let contracts: Vec<Contract> = cfg.contracts
         .into_iter()
-        .map(|v| v.as_mapping().unwrap().iter().next().unwrap())
-        .map(|(name, config)| {
-            let name = name.as_str().unwrap();
-            let address = config["address"].as_str().unwrap();
-            let file_path: &str = config["file"].as_str().unwrap();
-            let abs_file: PathBuf = Path::new(directory).join(file_path);
-            let abs_file_path: &str = abs_file.to_str().unwrap();
-            println!("name={}, address={}, file={}", name, address, abs_file_path);
-            let contract = Contract::load(&common_file_strs, abs_file_path, name);
-            let param_values = data["Contracts"]
-                .as_sequence()
-                .unwrap()
-                .iter()
-                .map(|item| {
-                    item
-                        .as_mapping()
-                        .unwrap()
-                        .iter()
-                        .next()
-                        .unwrap()
-                })
-                .find(|(key, _)| key.as_str().unwrap() == name)
-                .map(|(_, values)| {
-                    values
-                        .as_sequence()
-                        .unwrap()
-                        .iter()
-                        .map(|value| {
-                            value
-                                .as_mapping()
-                                .unwrap()
-                                .iter()
-                                .next()
-                                .map(|(key, value)| {
-                                    println!("key={:?}, value={:?}", key, value);
-                                    use serde_yaml::Value;
-                                    match value {
-                                        Value::Bool(v) => v.to_string(),
-                                        Value::Number(v) => format!("{}", v),
-                                        Value::String(v) => remove_0x(v.as_str()).to_string(),
-                                        Value::Sequence(items) => {
-                                            let items_string = items
-                                                .iter()
-                                                .map(|item| {
-                                                    match item {
-                                                        Value::Bool(v) => v.to_string(),
-                                                        Value::Number(v) => format!("{}", v),
-                                                        Value::String(v) => remove_0x(v.as_str()).to_string(),
-                                                        _ => panic!("Invalid item: {:?}", item),
-                                                    }
-                                                })
-                                                .collect::<Vec<_>>()
-                                                .join(",");
-                                            format!("[{}]", items_string)
-                                        },
-                                        _ => panic!("Invalid value: {:?}", value),
-                                    }
-                                })
-                                .unwrap()
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or(vec![]);
-
-            println!("values: {:?}", param_values);
-            let param_strs: Vec<&str> = param_values
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
-            gen_account(Rc::new(contract.data(param_strs.as_slice())))
+        .map(|contract_cfg| {
+            let mut path = PathBuf::from(&directory);
+            path.push(&contract_cfg.path);
+            Contract::load(contract_cfg, &library, path.to_str().unwrap())
         })
-        .for_each(|info| {
-            println!("account info={:#?}", info.map(|v| v.storage));
+        .collect();
+    let mut contract_dict: HashMap<&str, &Contract> = HashMap::new();
+
+    for contract in &contracts {
+        contract_dict.insert(contract.cfg.name.as_str(), &contract);
+        for instance_cfg in &contract.cfg.instances {
+            contract_addresses.insert(
+                contract.cfg.name.clone(),
+                instance_cfg.address.clone()
+            );
+            contract_dict.insert(
+                instance_cfg.address.as_str(),
+                &contract
+            );
+            let param_values: Vec<String> = if contract.cfg.name == "Permission" {
+                instance_cfg.params
+                    .iter()
+                    .map(|param| {
+                        let value = param.to_abi_value();
+                        match param.name.as_str() {
+                            "contracts" => {
+                                if let AbiValue::Array(values) = value {
+                                    let s = values
+                                        .into_iter()
+                                        .map(|value| {
+                                            contract_addresses.get(&value).map(|s| remove_0x(s).to_string()).unwrap_or(value)
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(",");
+                                    format!("[{}]", s)
+                                } else {
+                                    panic!("value should be array")
+                                }
+                            }
+                            "functions" => {
+                                if let AbiValue::Array(values) = value {
+                                    let s = values
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(i, value)| {
+                                            let contract_name = instance_cfg
+                                                .params[1]
+                                                .value
+                                                .as_array()
+                                                .unwrap()
+                                                .get(i)
+                                                .unwrap()
+                                                .as_str()
+                                                .unwrap()
+                                                .to_string();
+                                            if let Some(contract) = contract_dict.get(contract_name.as_str()) {
+                                                contract.hashes.get(&value).map(|s| remove_0x(s).to_string()).unwrap_or(value)
+                                            } else {
+                                                value
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(",");
+                                    format!("[{}]", s)
+                                } else {
+                                    panic!("value should be array")
+                                }
+                            }
+                            _ => value.into_string()
+                        }
+                    })
+                    .collect()
+            } else {
+                instance_cfg.params
+                    .iter()
+                    .map(|param| param.to_abi_value().into_string())
+                    .collect()
+            };
+            let param_values: Vec<&str> = param_values
+                .iter()
+                .map(|p| p.as_str())
+                .collect();
+            let data = contract.data(&param_values);
+            if let Some(ref info) = gen_account(Rc::new(data)) {
+                let alloc_item = AllocItem {
+                    nonce: "1".to_string(),
+                    code: format!("0x{}", info.code.to_hex::<String>()),
+                    storage: info.storage_map()
+                };
+                genesis.alloc.insert(instance_cfg.address.clone(), alloc_item);
+            }
             println!("=============================\n");
-        });
+        }
+    }
+
+    let left = genesis;
+    let right = genesis_value;
+    assert_eq!(left.timestamp, right.timestamp);
+    assert_eq!(left.prevhash, right.prevhash);
+    for (address, left_item) in &left.alloc {
+        println!(">> address: {}", address);
+        let right_item = right.alloc.get(address).unwrap();
+        assert_eq!(left_item.nonce, right_item.nonce);
+        assert_eq!(left_item.code, right_item.code);
+        for (key, left_value) in &left_item.storage {
+            println!(" > storage.key: {}", key);
+            let right_value = right_item.storage.get(key).unwrap();
+            assert_eq!(left_value, right_value);
+        }
+    }
 }
