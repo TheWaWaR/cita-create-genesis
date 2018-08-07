@@ -15,6 +15,7 @@ extern crate rand;
 extern crate sha3;
 extern crate bigint;
 extern crate rustc_hex;
+#[macro_use]
 extern crate clap;
 extern crate ethabi;
 
@@ -327,29 +328,16 @@ struct AllocItem {
 }
 
 fn main() {
-    let matches = App::new("create-genesis")
-        .arg(
-            Arg::with_name("directory")
-                .long("directoryr")
-                .takes_value(true)
-                .help("Contracts directory")
-        )
-        .arg(
-            Arg::with_name("config")
-                .short("c")
-                .long("config")
-                .takes_value(true)
-                .required(true)
-                .help("Contracts JSON config path")
-        )
-        .arg(
-            Arg::with_name("genesis")
-                .short("g")
-                .long("genesis")
-                .takes_value(true)
-                .required(true)
-                .help("Genesis JSON file path")
-        )
+    let matches = clap_app!(
+        create_genesis =>
+            (@arg directory: -d --directory +takes_value
+             "Contracts directory")
+            (@arg config: -c --config +takes_value +required
+             "Contracts JSON config path")
+            (@arg genesis: -g --genesis +takes_value +required
+             "Genesis JSON file path")
+    )
+        .name("cita-create-genesis")
         .get_matches();
 
     let genesis_path = matches.value_of("genesis").unwrap();
